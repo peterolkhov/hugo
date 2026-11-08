@@ -561,10 +561,14 @@ func (m *pageMap) forEachResourceInPage(
 
 func (m *pageMap) getResourcesForPage(ps *pageState) (resource.Resources, error) {
 	var res resource.Resources
+	owners, _ := m.treePages.GetRaw(strings.TrimSuffix(ps.Path(), "/"))
 
 	m.forEachResourceInPage(ps, doctree.LockTypeNone, true, nil, func(resourceKey string, n contentNode) (bool, error) {
 		switch n := n.(type) {
 		case *resourceSource:
+			if !n.canShareWith(ps, owners) {
+				return false, nil
+			}
 			r := n.r
 
 			if r == nil {

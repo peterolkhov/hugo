@@ -71,6 +71,21 @@ type resourceSource struct {
 	r resource.Resource
 }
 
+func (r *resourceSource) canShareWith(p *pageState, owners contentNode) bool {
+	key := p.m.pageConfig.TranslationKey
+	if key == "" || r.fi == nil {
+		return true
+	}
+	// Assigning a site vector changes r.sv, not the source's language assignment.
+	meta := r.fi.Meta()
+	if meta.MatchSiteVectorCoarse(p.s.siteVector) {
+		return true
+	}
+	return owners != nil && !owners.forEeachContentNode(func(vec sitesmatrix.Vector, n contentNode) bool {
+		return n.(*pageState).m.pageConfig.TranslationKey != key || !meta.MatchSiteVectorCoarse(vec)
+	})
+}
+
 func (r *resourceSource) assignSiteVector(vec sitesmatrix.Vector) *resourceSource {
 	if r.state == resourceStateAssigned {
 		panic("cannot assign site vector to a resourceSource that is already assigned")

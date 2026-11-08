@@ -1378,6 +1378,152 @@ translationKey: foo
 	b.AssertFileContent("public/pt/categories/música/index.html", "true|/en/categories/music/|")
 }
 
+// See issue 12333.
+func TestTranslationKeyResourceIsolation(t *testing.T) {
+	t.Parallel()
+
+	for _, multihost := range []bool{false, true} {
+		for _, linking := range []string{"separate", "linked", "implicit"} {
+			t.Run(fmt.Sprintf("multihost=%v/%s", multihost, linking), func(t *testing.T) {
+				files := `
+-- hugo.toml --
+baseURL = 'https://example.org/'
+disableKinds = ['home','section','rss','sitemap','taxonomy','term']
+defaultContentLanguageInSubdir = true
+[languages.en]
+weight = 1
+ENHOST
+[languages.fr]
+weight = 2
+FRHOST
+[[module.mounts]]
+source = 'content/en'
+target = 'content'
+[module.mounts.sites.matrix]
+languages = ['en']
+[[module.mounts]]
+source = 'content/fr'
+target = 'content'
+[module.mounts.sites.matrix]
+languages = ['fr']
+[[module.mounts]]
+source = 'shared'
+target = 'content'
+[module.mounts.sites.matrix]
+languages = ['**']
+[[module.mounts]]
+source = 'complements'
+target = 'content'
+[module.mounts.sites.matrix]
+languages = ['en']
+[module.mounts.sites.complements]
+languages = ['fr']
+-- layouts/page.html --
+Translations: {{ len .Translations }}|
+Resources: {{ range .Resources }}{{ .Name }}={{ .Content }};{{ end }}
+-- content/en/entry/index.md --
+---
+translationKey: ENKEY
+---
+-- content/fr/entry/index.md --
+---
+translationKey: FRKEY
+---
+-- content/en/entry/english.txt --
+English
+-- content/fr/entry/french.txt --
+French
+-- shared/entry/common.txt --
+Common
+-- complements/entry/complement.txt --
+Complement
+`
+				enHost, frHost := "", ""
+				if multihost {
+					enHost, frHost = "baseURL = 'https://en.example.org/'", "baseURL = 'https://fr.example.org/'"
+				}
+				enKey, frKey := "catalog", "journal"
+				switch linking {
+				case "linked":
+					frKey = enKey
+				case "implicit":
+					enKey, frKey = "", ""
+				}
+				files = strings.NewReplacer("ENHOST", enHost, "FRHOST", frHost, "ENKEY", enKey, "FRKEY", frKey).Replace(files)
+				b := Test(t, files)
+				for _, lang := range []string{"en", "fr"} {
+					filename := "public/" + lang + "/entry/index.html"
+					b.AssertFileContent(filename, "common.txt=Common;")
+					b.AssertFileContent(filename, "complement.txt=Complement;")
+					if multihost || lang == "en" {
+						b.AssertFileContent("public/"+lang+"/entry/common.txt", "Common")
+						b.AssertFileContent("public/"+lang+"/entry/complement.txt", "Complement")
+					}
+					if linking == "separate" {
+						b.AssertFileContent(filename, "Translations: 0|")
+						if lang == "en" {
+							b.AssertFileExists("public/en/entry/french.txt", false)
+							b.AssertFileContent(filename, "english.txt=English;", "! french.txt=")
+						} else {
+							b.AssertFileExists("public/fr/entry/english.txt", false)
+							b.AssertFileContent(filename, "french.txt=French;", "! english.txt=")
+						}
+					} else {
+						b.AssertFileContent(filename, "Translations: 1|", "english.txt=English;", "french.txt=French;")
+						if multihost {
+							b.AssertFileContent("public/"+lang+"/entry/english.txt", "English")
+							b.AssertFileContent("public/"+lang+"/entry/french.txt", "French")
+						}
+					}
+				}
+			})
+		}
+	}
+}
+
+// See issue 12333.
+func TestTranslationKeyResourceDonor(t *testing.T) {
+	t.Parallel()
+	files := `
+-- hugo.toml --
+disableKinds = ['home','section','rss','sitemap','taxonomy','term']
+[languages.en]
+weight = 1
+baseURL = 'https://en.example.org/'
+contentDir = 'content/en'
+[languages.de]
+weight = 2
+baseURL = 'https://de.example.org/'
+contentDir = 'content/de'
+[languages.fr]
+weight = 3
+baseURL = 'https://fr.example.org/'
+contentDir = 'content/fr'
+-- layouts/page.html --
+{{ range .Resources }}{{ .Name }}={{ .Content }};{{ end }}
+-- content/en/entry/index.md --
+---
+translationKey: catalog
+---
+-- content/de/entry/index.md --
+---
+translationKey: journal
+---
+-- content/fr/entry/index.md --
+---
+translationKey: catalog
+---
+-- content/en/entry/name.txt --
+Catalog
+-- content/de/entry/name.txt --
+Journal
+`
+	b := Test(t, files)
+	b.AssertFileContent("public/fr/entry/index.html", "name.txt=Catalog;")
+	b.AssertFileContent("public/fr/entry/name.txt", "Catalog")
+	b.AssertFileContent("public/de/entry/name.txt", "Journal")
+}
+
 // Issue #11540.
 func TestTranslationKeyResourceSharing(t *testing.T) {
 	files := `

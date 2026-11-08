@@ -781,7 +781,14 @@ func (a *allPagesAssembler) doCreatePages(prefix string, depth int) error {
 
 				if _, found := nodes[p.s.siteVector]; !found {
 					var rs *resourceSource
-					match := cnh.findContentNodeForSiteVector(p.s.siteVector, duplicateResourceFiles, cnh.contentNodeToSeq(n))
+					candidates := func(yield func(contentNode) bool) {
+						for candidate := range cnh.contentNodeToSeq(n) {
+							if candidate.(*resourceSource).canShareWith(p, resourceOwnerInfo.n) && !yield(candidate) {
+								return
+							}
+						}
+					}
+					match := cnh.findContentNodeForSiteVector(p.s.siteVector, duplicateResourceFiles, candidates)
 					if match == nil {
 						return true
 					}
